@@ -6,6 +6,7 @@ from Models.models_base import Base
 class Company(Base):
 
     __tablename__ = 'Companies'
+
     code = Column(String, primary_key=True)
     last_update = Column(String, default="NULL")
 

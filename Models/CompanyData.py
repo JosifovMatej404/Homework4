@@ -5,7 +5,8 @@ from Models.models_base import Base
 class CompanyData(Base):
     __tablename__ = 'AllCompaniesData'
     # Define columns
-    code = Column(String, ForeignKey("Companies.code"), primary_key=True)  # Foreign key to Company.code
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String, ForeignKey("Companies.code"))
     date = Column(String)
     last_trade_price = Column(DECIMAL)
     max_price = Column(DECIMAL)

@@ -15,7 +15,7 @@ date_format = "%Y-%m-%d"
 
 
 #add_company("ALKB","12.24.2024")
-#insert_company_data("GRSN",date_string,125.5,1232.5,12325.5,12323.5,12.23,12,12,12)
+insert_company_data("ALK",date_string,125.5,1232.5,12325.5,12323.5,12.23,12,12,12)
 
 
 #companiesObject = get_company_data_by_code("ALK")
