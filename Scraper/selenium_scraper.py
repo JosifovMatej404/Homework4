@@ -6,6 +6,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from datetime import datetime
+from Models import Company, CompanyData
+from Data.db_functions import  add_company_object, insert_company_data_object
 
 def set_driver_options():
     # Set up Chrome options for headless mode
@@ -27,26 +29,28 @@ def get_current_date():
 #NOT ASYNC
 
 class SeleniumWorker:
-    def __init__(self):
+    def __init__(self, driver_pool):
         self.web_objects = []
         self.options = set_driver_options()
         self.data = []
+        self.driver_pool = driver_pool
 
     def create_driver_and_set_url(self, key):
         # Initialize WebDriver each time to ensure a fresh instance
-        new_driver = webdriver.Chrome(options=self.options)
+        new_driver = self.driver_pool.get_driver()
         url = f"https://www.mse.mk/mk/stats/symbolhistory/{key}"
         new_driver.get(url)
         return new_driver
 
     def create_issuer_driver_and_set_url(self):
-        new_driver = webdriver.Chrome(options=self.options)
+        new_driver = self.driver_pool.get_driver()
         url = f"https://www.mse.mk/mk/issuers/free-market"
         new_driver.get(url)
         return new_driver
 
     def fetch_company_keys(self):
         driver = self.create_issuer_driver_and_set_url()
+        today = get_current_date()
         first_column_data = driver.execute_script("""
             let rows = document.querySelectorAll('table tr');  // Select all table rows
             return Array.from(rows).map(row => {
@@ -54,18 +58,22 @@ class SeleniumWorker:
                 return firstCell ? firstCell.textContent.trim() : null;  // Return text if exists
             }).filter(cell => cell !== null);  // Remove null entries
         """)
-        print("Fetched company keys")
+        print("Fetched company keys.")
+        for item in first_column_data:
+            company = Company(item, today)
+            add_company_object(company)
+        print("Filled company keys to database.")
+        self.driver_pool.release_driver(driver)
         return first_column_data
 
     def fetch_data_since_last_date(self, last_date, key):
-        return self.fetch_data_with_dates_and_key(last_date, get_current_date(), key)
+        self.fetch_data_with_dates_and_key(last_date, get_current_date(), key)
 
     def fetch_data_for_company(self, company):
-        data = []
         if company.last_update == "NULL":
-            data.extend(self.fetch_data_for_10_years_with_key(company.code))
+            self.fetch_data_for_10_years_with_key(company.code)
             company.last_update = "01.01." + str(datetime.now().year)
-        data.extend(self.fetch_data_since_last_date(company.last_update, company.code))
+        self.fetch_data_since_last_date(company.last_update, company.code)
 
     def fetch_data_for_10_years_with_key(self, key):
         year = datetime.now().year
@@ -74,27 +82,26 @@ class SeleniumWorker:
         def process_item(index):
             return self.fetch_data_with_dates_and_key(f"01.01.{year - 10 + index}", f"31.12.{year - 10 + index}", key)
 
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor(max_workers=10) as executor:
             # Submit tasks to the executor and collect futures
             futures = {executor.submit(process_item, index): index for index in range(10)}
 
-            # Collect results as tasks complete
             for future in as_completed(futures):
                 try:
-                    result = future.result()  # Get the return value from process_item
-                    data.append(result)
+                    future.result()
+                    print("Data loaded for " + key + "!")
+                    executor.shutdown()
                 except Exception as e:
                     print(f"Task raised an exception: {e}")
-
         return data
+
+    def convert_str_to_float(self, string):
+        return 0 if string is None else float(string.replace(".", "").replace(",", ".") if string != '' else 0)
 
     def fetch_data_with_dates_and_key(self, start_date, end_date, key):
         driver = self.create_driver_and_set_url(key)
         try:
-            driver.delete_all_cookies()  # Clear cookies after setting the URL
-
-            print("Waiting for "+ key +" date inputs to load for period " + start_date + " to " + end_date + "...")
-
+            #driver.delete_all_cookies()  # Clear cookies after setting the URL
 
             # Wait until input elements are interactable
             WebDriverWait(driver, 2).until(
@@ -113,29 +120,31 @@ class SeleniumWorker:
             input_element2.clear()
             input_element2.send_keys(end_date)
 
-            print("Triggering data fetch for " + key + " from " + start_date + " to " + end_date + "...")
             # Locate and trigger the button click
             button = WebDriverWait(driver, 2).until(
                 EC.element_to_be_clickable((By.CLASS_NAME, "btn-primary-sm"))
             )
             driver.execute_script("arguments[0].click();", button)
 
-            print("Waiting for data to load for " + key + " from " + start_date + " to " + end_date + "...")
-            # Wait for the data table to load
-            WebDriverWait(driver, 2).until(
-                EC.presence_of_element_located((By.TAG_NAME, "td"))
-            )
             table_data = driver.execute_script("""
                 let cells = document.querySelectorAll('td');
                 return Array.from(cells).map(cell => cell.textContent.trim());
             """)
 
-            print("Data loaded for " + key + " from " + start_date + " to " + end_date + "!")
-            return table_data
+            if table_data is None: return
+
+            for i in range(0, len(table_data), 9):
+                company = CompanyData(key, table_data[i],
+                                      self.convert_str_to_float(table_data[i + 1]),
+                                      self.convert_str_to_float(table_data[i + 2]),
+                                      self.convert_str_to_float(table_data[i + 3]),
+                                      self.convert_str_to_float(table_data[i + 4]),
+                                      self.convert_str_to_float(table_data[i + 5]),
+                                      self.convert_str_to_float(table_data[i + 6]),
+                                      self.convert_str_to_float(table_data[i + 7]),
+                                      self.convert_str_to_float(table_data[i + 8]))
+                insert_company_data_object(company)
         except TimeoutException as e:
-            print("Html element for " + key + " not found for period: " + start_date + " to " + end_date + ".")
-            driver.quit()
-            return None
+            return
         finally:
-            if driver:
-                driver.quit()  # Ensure the driver is properly closed
+            self.driver_pool.release_driver(driver)
