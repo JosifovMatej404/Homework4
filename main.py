@@ -6,7 +6,7 @@ data = []
 key_worker = SeleniumWorker()
 keys = key_worker.fetch_company_keys()
 while keys is None: continue
-with ThreadPoolExecutor(max_workers=10) as executor:
+with ThreadPoolExecutor() as executor:
     # Submit tasks to the executor and collect futures
     worker = SeleniumWorker()
     futures = {executor.submit(worker.fetch_data_for_10_years_with_key(key)): key for key in keys}

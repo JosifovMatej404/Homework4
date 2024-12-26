@@ -10,12 +10,15 @@ from datetime import datetime
 def set_driver_options():
     # Set up Chrome options for headless mode
     options = Options()
+    options.headless = True
     options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("disable-infobars")  # Disable infobars
     options.add_argument("--disable-extensions")  # Disable extensions
+    options.add_argument("--disable-popup-blocking")
+    options.add_argument("--log-level=3")
     return options
 
 def get_current_date():
@@ -71,7 +74,7 @@ class SeleniumWorker:
         def process_item(index):
             return self.fetch_data_with_dates_and_key(f"01.01.{year - 10 + index}", f"31.12.{year - 10 + index}", key)
 
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor() as executor:
             # Submit tasks to the executor and collect futures
             futures = {executor.submit(process_item, index): index for index in range(10)}
 
@@ -90,7 +93,8 @@ class SeleniumWorker:
         try:
             driver.delete_all_cookies()  # Clear cookies after setting the URL
 
-            print("Waiting for date inputs to load...")
+            print("Waiting for "+ key +" date inputs to load for period " + start_date + " to " + end_date + "...")
+
 
             # Wait until input elements are interactable
             WebDriverWait(driver, 2).until(
@@ -109,14 +113,14 @@ class SeleniumWorker:
             input_element2.clear()
             input_element2.send_keys(end_date)
 
-            print("Triggering data fetch...")
+            print("Triggering data fetch for " + key + " from " + start_date + " to " + end_date + "...")
             # Locate and trigger the button click
             button = WebDriverWait(driver, 2).until(
                 EC.element_to_be_clickable((By.CLASS_NAME, "btn-primary-sm"))
             )
             driver.execute_script("arguments[0].click();", button)
 
-            print("Waiting for data to load...")
+            print("Waiting for data to load for " + key + " from " + start_date + " to " + end_date + "...")
             # Wait for the data table to load
             WebDriverWait(driver, 2).until(
                 EC.presence_of_element_located((By.TAG_NAME, "td"))
@@ -125,6 +129,8 @@ class SeleniumWorker:
                 let cells = document.querySelectorAll('td');
                 return Array.from(cells).map(cell => cell.textContent.trim());
             """)
+
+            print("Data loaded for " + key + " from " + start_date + " to " + end_date + "!")
             return table_data
         except TimeoutException as e:
             print("Html element for " + key + " not found for period: " + start_date + " to " + end_date + ".")
