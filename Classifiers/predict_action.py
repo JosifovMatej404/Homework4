@@ -1,20 +1,21 @@
 import pandas as pd
-from Data.db_functions import get_company_data_by_code
+import plotly.graph_objects as go
+from Data.db_functions import get_company_data_by_code, get_last_update_for_all_companies
 from datetime import datetime
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import os
 
+# Helper functions (same as before)
 def is_valid_date(date_str):
     try:
-        # Try to parse the date string in the format dd-mm-yyyy
         datetime.strptime(date_str, '%d.%m.%Y')
         return True
     except ValueError:
-        # If it fails, return False
         return False
 
 def company_data_to_dict(company_data_list):
-    """
-    Converts a list of CompanyData objects into a list of dictionaries, with all attributes.
-    """
     data_dict = []
     for company_data in company_data_list:
         if not is_valid_date(company_data.date): continue
@@ -31,88 +32,107 @@ def company_data_to_dict(company_data_list):
         })
     return data_dict
 
-
 def prepare_data(data):
-    """
-    Takes raw company data and prepares 1-day, 1-week, and 1-month transformations.
-    """
-    df = pd.DataFrame(data)  # Convert data into a DataFrame
-    df['date'] = pd.to_datetime(df['date'])  # Ensure date column is datetime
-    df.set_index('date', inplace=True)  # Set date as the index
-
-    # Resample for each period
-    daily = df.copy()  # 1-day data remains the same
+    df = pd.DataFrame(data)
+    df['date'] = pd.to_datetime(df['date'])
+    df.set_index('date', inplace=True)
+    daily = df.copy()
     weekly = df.resample('W').agg({
         'last_trade_price': 'mean',
         'volume': 'sum',
         'percent_change': 'mean',
         'max_price': 'max',
         'min_price': 'min',
-    }).ffill().infer_objects(copy=False)  # Forward fill and fix dtypes
-
+    }).ffill()
     monthly = df.resample('ME').agg({
         'last_trade_price': 'mean',
         'volume': 'sum',
         'percent_change': 'mean',
         'max_price': 'max',
         'min_price': 'min',
-    }).ffill().infer_objects(copy=False)  # Forward fill and fix dtypes
-
+    }).ffill()
     return daily, weekly, monthly
 
 def calculate_sma_ema(df, window_sma=14, window_ema=14):
-    """
-    Calculates SMA and EMA for the DataFrame.
-    """
-    # Calculate SMA and EMA
     df['SMA'] = df['last_trade_price'].rolling(window=window_sma).mean()
     df['EMA'] = df['last_trade_price'].ewm(span=window_ema, adjust=False).mean()
-
     return df
 
+def plot_data(df, title):
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(
+        x=df.index,
+        open=df['last_trade_price'],
+        high=df['max_price'],
+        low=df['min_price'],
+        close=df['last_trade_price'],
+        name='Stock Price',
+        increasing_line_color='green',
+        decreasing_line_color='red'
+    ))
+    fig.add_trace(go.Scatter(x=df.index, y=df['SMA'], mode='lines', name='SMA', line=dict(color='blue')))
+    fig.add_trace(go.Scatter(x=df.index, y=df['EMA'], mode='lines', name='EMA', line=dict(color='orange')))
+    fig.update_layout(
+        title=title,
+        xaxis_title='Date',
+        yaxis_title='Price',
+        template='plotly_dark',
+        xaxis_rangeslider_visible=False
+    )
+    return fig
 
-def predict_action(df):
-    """
-    Predicts 'BUY', 'SELL', or 'HOLD' based on the crossover of SMA and EMA.
-    """
-    predictions = []
-    for i in range(1, len(df)):
-        if df['SMA'].iloc[i] > df['EMA'].iloc[i] and df['SMA'].iloc[i - 1] <= df['EMA'].iloc[i - 1]:
-            predictions.append('BUY')
-        elif df['SMA'].iloc[i] < df['EMA'].iloc[i] and df['SMA'].iloc[i - 1] >= df['EMA'].iloc[i - 1]:
-            predictions.append('SELL')
-        else:
-            predictions.append('HOLD')
+# Dash App
+app = dash.Dash(__name__)
 
-    # Add the first prediction as 'HOLD' (since there's no prior data to compare for the first record)
-    predictions.insert(0, 'HOLD')
+app.layout = html.Div([
+    # Dropdown for selecting company code
+    html.Div([
+        html.Label("Select Company Code:"),
+        dcc.Dropdown(id='company-dropdown',
+                     options=[{'label': company.code, 'value': company.code} for company in get_last_update_for_all_companies()],
+                     value='ALKB',  # Default value
+                     style={'width': '50%'}),
+    ], style={'padding': '20px'}),
 
-    df['Action'] = predictions
-    return df
+    # Tabs for daily, weekly, and monthly data
+    dcc.Tabs(id='tabs', value='daily', children=[
+        dcc.Tab(label='Daily Data', value='daily'),
+        dcc.Tab(label='Weekly Data', value='weekly'),
+        dcc.Tab(label='Monthly Data', value='monthly')
+    ]),
 
+    # Graphs will be displayed here
+    html.Div([
+        dcc.Graph(id='graph', style={'height': '70vh'})
+    ])
+])
 
+@app.callback(
+    Output('graph', 'figure'),
+    [Input('company-dropdown', 'value'),
+     Input('tabs', 'value')]
+)
+def update_graph(company_code, time_period):
+    # Fetch company data based on selected code
+    data = get_company_data_by_code(company_code)
+    data_dict = company_data_to_dict(data)
+
+    # Prepare data for each time period
+    prepared_data_daily, prepared_data_weekly, prepared_data_monthly = prepare_data(data_dict)
+
+    # Calculate SMA and EMA for the selected time period
+    if time_period == 'daily':
+        data_to_plot = calculate_sma_ema(prepared_data_daily)
+        title = f"Daily Data for {company_code} with SMA & EMA"
+    elif time_period == 'weekly':
+        data_to_plot = calculate_sma_ema(prepared_data_weekly)
+        title = f"Weekly Data for {company_code} with SMA & EMA"
+    elif time_period == 'monthly':
+        data_to_plot = calculate_sma_ema(prepared_data_monthly)
+        title = f"Monthly Data for {company_code} with SMA & EMA"
+
+    # Plot and return figure
+    return plot_data(data_to_plot, title)
 
 if __name__ == '__main__':
-
-
-    data_alk = get_company_data_by_code("ALKB")
-
-
-
-    data_dict = company_data_to_dict(data_alk)
-
-    prepared_data_daily,prepared_data_weekly,prepared_data_monthly = prepare_data(data_dict)
-
-
-    prediction_data_daily = calculate_sma_ema(prepared_data_daily)
-    final_action_daily = predict_action(prediction_data_daily)
-    print("Daily data prediction: " + final_action_daily['Action'])
-
-    prediction_data_weekly = calculate_sma_ema(prepared_data_weekly)
-    final_action_weekly = predict_action(prediction_data_weekly)
-    print("Weekly data prediction: " + final_action_weekly['Action'])
-
-    prediction_data_monthly = calculate_sma_ema(prepared_data_monthly)
-    final_action_monthly = predict_action(prediction_data_monthly)
-    print("Monthly data prediction: " + final_action_monthly['Action'])
-
+    app.run_server(debug=True)
