@@ -2,12 +2,22 @@ import pandas as pd
 from Data.db_functions import get_company_data_by_code
 from datetime import datetime
 
+def is_valid_date(date_str):
+    try:
+        # Try to parse the date string in the format dd-mm-yyyy
+        datetime.strptime(date_str, '%d.%m.%Y')
+        return True
+    except ValueError:
+        # If it fails, return False
+        return False
+
 def company_data_to_dict(company_data_list):
     """
     Converts a list of CompanyData objects into a list of dictionaries, with all attributes.
     """
     data_dict = []
     for company_data in company_data_list:
+        if not is_valid_date(company_data.date): continue
         data_dict.append({
             'date': datetime.strptime(company_data.date.replace(".","-"), '%d-%m-%Y'),
             'last_trade_price': company_data.last_trade_price,

@@ -118,8 +118,9 @@ def get_company_data_by_code(code: str):
         """
     session = SessionLocal()
     try:
-        companies = session.query(Company).filter(Company.code == code).all()
-        return companies
+        company_data = session.query(CompanyData).filter(CompanyData.code == code).all()
+        #ompany_data.sort(key=lambda x: datetime.strptime(x.date.replace(".","-") or datetime.min, '%d-%m-%Y'))
+        return company_data
     except Exception as e:
         print(f"An error occurred: {e}")
         return None
