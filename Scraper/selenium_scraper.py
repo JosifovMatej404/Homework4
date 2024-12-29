@@ -7,7 +7,8 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from datetime import datetime
 from Models import Company, CompanyData
-from Data.db_functions import  add_company_object, insert_company_data_object
+from Data.db_functions import add_company_object, insert_company_data_object, update_last_update_by_code
+
 
 def set_driver_options():
     # Set up Chrome options for headless mode
@@ -58,22 +59,45 @@ class SeleniumWorker:
                 return firstCell ? firstCell.textContent.trim() : null;  // Return text if exists
             }).filter(cell => cell !== null);  // Remove null entries
         """)
-        print("Fetched company keys.")
-        for item in first_column_data:
-            company = Company(item, today)
-            add_company_object(company)
         print("Filled company keys to database.")
         self.driver_pool.release_driver(driver)
         return first_column_data
 
     def fetch_data_since_last_date(self, last_date, key):
-        self.fetch_data_with_dates_and_key(last_date, get_current_date(), key)
+        return self.fetch_data_with_dates_and_key(last_date, get_current_date(), key)
 
     def fetch_data_for_company(self, company):
-        if company.last_update == "NULL":
-            self.fetch_data_for_10_years_with_key(company.code)
-            company.last_update = "01.01." + str(datetime.now().year)
-        self.fetch_data_since_last_date(company.last_update, company.code)
+        year = datetime.now().year
+
+        def process_item(index):
+            return self.fetch_data_with_dates_and_key(f"01.01.{year - 10 + index}", f"31.12.{year - 10 + index}", company.code)
+
+        def process_this_year():
+            return self.fetch_data_since_last_date(company.last_update, company.code)
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            # Submit tasks to the executor and collect futures
+
+            futures = None
+
+            if company.last_update == "None":
+                futures = {executor.submit(process_item, index): index for index in range(10)}
+
+            executor.submit(process_this_year)
+
+            if futures is None: return
+
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                    print("Data loaded for " + company.code + "!")
+                except Exception as e:
+                    print(f"Task raised an exception: {e}")
+                finally:
+                    executor.shutdown(wait=True)
+
+            update_last_update_by_code(company.code, get_current_date())
+
 
     def fetch_data_for_10_years_with_key(self, key):
         year = datetime.now().year

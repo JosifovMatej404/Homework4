@@ -16,4 +16,4 @@ class Company(Base):
         self.last_update = last_update
 
     def __repr__(self):
-        return f"Company {self.name} {self.code}"
+        return f"Company {self.code}"

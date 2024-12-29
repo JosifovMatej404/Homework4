@@ -12,7 +12,7 @@ import os
 DB_PATH = os.path.join(os.path.dirname(__file__), "database.db")
 DATABASE_URL = f"sqlite:///{DB_PATH}"
 
-engine = create_engine(DATABASE_URL, echo=True)
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(bind=engine)
 
 
@@ -47,7 +47,6 @@ def insert_company_data(code: str, date: str, last_trade_price: float,
     try:
         session.add(new_company_data)
         session.commit()
-        print(f"Added the company record with code {code} successfully")
     except Exception as e:
         print(f"An error occurred: {e}")
         session.rollback()
@@ -68,7 +67,6 @@ def insert_company_data_object(company_record :CompanyData):
     try:
         session.add(company_record)
         session.commit()
-        print(f"Added the company record with code {company_record.code} successfully")
     except Exception as e:
         print(f"An error occurred: {e}")
         session.rollback()
@@ -87,8 +85,6 @@ def add_company(code, last_update):
 
         session.add(new_company)
         session.commit()
-
-        print(f"Company with code: {code} added successfully!")
     except Exception as e:
         print(f"An error occurred: {e}")
         session.rollback()
@@ -108,7 +104,6 @@ def add_company_object(company : Company):
         session.add(company)
         session.commit()
 
-        print(f"Company with code: {company.code} added successfully!")
     except Exception as e:
         print(f"An error occurred: {e}")
         session.rollback()
@@ -131,7 +126,120 @@ def get_company_data_by_code(code: str):
     finally:
         session.close()
 
+def get_last_update_for_all_companies():
+    """
+        Retrieves the last update for each Company in the database as a list of tuples.
+        Each tuple contains (code, last_update).
+    """
+    session = SessionLocal()
+    try:
+        companies = session.query(Company.code, Company.last_update).all()
+        return companies
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+    finally:
+        session.close()
 
 
+def get_companies_by_code(code: str):
+    """
+        Retrieves all Company objects with the specified code.
+        Returns a list of Company objects.
+    """
+    session = SessionLocal()
+    try:
+        companies = session.query(Company).filter(Company.code == code).all()
+        return companies
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+    finally:
+        session.close()
 
+def update_last_update_by_code(code: str, new_last_update: str):
+    """
+        Updates the last_update field for a Company record with the specified code.
+
+        Args:
+            code (str): The company code to identify the record.
+            new_last_update (datetime): The new value for the last_update field.
+    """
+    session = SessionLocal()
+    try:
+        company = session.query(Company).filter(Company.code == code).first()
+        if not company:
+            print(f"No company found with code: {code}")
+            return False
+
+        company.last_update = new_last_update
+        session.commit()
+        print(f"Updated last_update for company with code {code}.")
+        return True
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+def delete_companies_by_code(code: str):
+    """
+        Deletes all Company objects with the specified code from the database.
+
+        Args:
+            code (str): The company code to identify the records to be deleted.
+
+        Returns:
+            bool: True if deletion is successful, False otherwise.
+    """
+    session = SessionLocal()
+    try:
+        # Find and delete all companies with the specified code
+        deleted_count = session.query(CompanyData).filter(Company.code == code).delete()
+        session.commit()
+
+        if deleted_count > 0:
+            print(f"Successfully deleted {deleted_count} record(s) with code: {code}.")
+            return True
+        else:
+            print(f"No records found with code: {code}.")
+            return False
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        session.rollback()
+        return False
+    finally:
+        session.close()
+
+def delete_data_for_unfinished_companies():
+    """
+    Deletes all records in the CompanyData table for companies
+    that have not finished loading (e.g., last_update is NULL).
+
+    Returns:
+        bool: True if deletion is successful, False otherwise.
+    """
+    session = SessionLocal()
+    try:
+        # Identify companies that haven't finished loading
+        unfinished_companies = session.query(Company).filter(Company.last_update == 'None').all()
+
+        if not unfinished_companies:
+            print("No unfinished companies found.")
+            return False
+
+        # Delete all CompanyData for these companies
+        codes_to_delete = [company.code for company in unfinished_companies]
+        deleted_count = session.query(CompanyData).filter(CompanyData.code.in_(codes_to_delete)).delete(synchronize_session=False)
+        session.commit()
+
+        print(f"Successfully deleted {deleted_count} records for unfinished companies.")
+        return True
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        session.rollback()
+        return False
+    finally:
+        session.close()
 
