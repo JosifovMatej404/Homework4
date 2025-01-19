@@ -19,6 +19,25 @@ SessionLocal = sessionmaker(bind=engine)
 # Create the SQLAlchemy engine
 engine = create_engine(DATABASE_URL)
 
+
+def get_all_company_codes():
+    """
+    Retrieves all company codes from the database.
+
+    Returns:
+        list: A list of company codes as strings.
+    """
+    session = SessionLocal()
+    try:
+        # Assuming the `Company` table has a column named `code`
+        codes = session.query(Company.code).all()
+        # `codes` will be a list of tuples; unpack it into a flat list
+        return [code[0] for code in codes]
+    finally:
+        session.close()
+
+
+
 # Method to insert CompanyData into the database
 def insert_company_data(code: str, date: str, last_trade_price: float,
                         max_price: float, min_price: float, avg_price: float,

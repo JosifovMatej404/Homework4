@@ -1,0 +1,8 @@
+selenium
+Flask
+dash
+pandas
+plotly
+requests
+sqlalchemy
+
