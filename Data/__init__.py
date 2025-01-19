@@ -1,2 +1,2 @@
-from .db_functions import add_company,insert_company_data
+from .db_functions import add_company,insert_company_data,get_companies_by_code,get_company_data_by_code,get_last_update_for_all_companies,get_connection
 from .instantiate_db import get_connection
